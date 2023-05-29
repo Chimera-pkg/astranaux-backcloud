@@ -1,0 +1,122 @@
+import express from "express";
+import db from "./config/Database.js";
+import routerModel from "./routes/routes.js";
+import dotenv from "dotenv";
+import cookieParser from "cookie-parser";
+import cors from "cors";
+import http from "http";
+import fs from "fs";
+import https from "https";
+
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const path = require('path');
+const frontend_path = '/home/moehammadtjakra/web_astranaux/astranaux/'
+// const frontend_path = '/e/College/TA/web_astranaux/astranaux/';
+
+dotenv.config();
+const app = express();
+
+const connectDatabase = async(req, res) =>{
+    try {
+        await db.authenticate();
+        console.log('Database connected');
+    } catch (error) {
+        console.log(error);
+    }
+}
+
+const options = {
+	key: fs.readFileSync('/home/moehammadtjakra/private.key'),
+	cert: fs.readFileSync('/home/moehammadtjakra/certificate.crt')
+}
+
+connectDatabase();
+
+const corsOptions = {
+  credentials: true, // allow cookies to be sent across domains
+  origin: ['http://localhost:80','http://localhost:3000','https://astranaux.com','https://www.astranaux.com','http://34.101.102.64']
+};
+
+// Enable CORS for all routes
+app.use(cors(corsOptions));
+
+// Enable cookie parsing and JSON parsing middleware
+app.use(cookieParser());
+app.use(express.json());
+
+// Mount the router middleware on the app
+app.use(routerModel);
+
+// Serve static files from the frontend build folder
+app.use(express.static(path.join(frontend_path, 'build')));
+
+// Catch all other requests and send the index.html file
+app.get('/*', function(req, res) {
+  res.sendFile('index.html', { root: path.join('/home/moehammadtjakra/web_astranaux/astranaux/build/') });
+});
+
+// Create a new HTTP server and listen for requests
+const portHttps = 443;
+const httpsServer = https.createServer(options, app);
+httpsServer.listen(portHttps, () => {
+  console.log(`Server is listening on port : ${portHttps}`);
+});
+
+// Create a new HTTP server and listen for requests
+// const portHttp = process.env.PORT || 80;
+// const httpServer = http.createServer(app);
+// httpServer.listen(port, () => {
+//   console.log(`Server is listening on port :${portHttp}`);
+// });
+
+//////// WEBSOCKET CONFIG ////////
+
+const WebSocket = require('ws');
+const wss = new WebSocket.Server({ server: httpsServer });
+//const wss = new WebSocket.Server({ server: httpServer });
+const access_token = "m3HlirT:K4p5}4etO~E|pousPQDDq:q61B)7YVfh";
+
+// Atur batasan jumlah pendengar menjadi 1 client
+//wss.setMaxListeners(1);
+
+wss.on('connection', function connection(ws, req) {
+    console.log('client connected');
+
+    ws.on('message', function incoming(message) {
+	// Parse incoming message
+    	const data = JSON.parse(message);
+	console.log(data);
+    	const receivedToken = data.access_token;
+
+    	if (receivedToken === access_token) {
+		const msg_data = data;
+		console.log('data from client:', msg_data);
+	      	// Send response message to the client
+      		const response = {
+        		"message": `${message}`
+      		};
+
+	 	 wss.clients.forEach(function each(client) {
+          		if (client.readyState === WebSocket.OPEN) {
+            			client.send(JSON.stringify(response));
+          			}
+        	});
+
+    	} else {
+      		// Invalid token, send an error response
+      		const response = {
+        		error: "Invalid access token"
+      		};
+      		ws.send(JSON.stringify(response, null, 2));
+    	}
+    });
+
+    ws.on('error', function(error) {
+      console.log(`WebSocket error: ${error}`);
+    });
+
+    ws.on('close', function close() {
+      console.log('Client disconnected');
+    });
+});
